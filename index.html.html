@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Snake Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f2f2f2;
+        }
+        canvas {
+            border: 2px solid black;
+        }
+        .score-board {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 18px;
+        }
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="score-board" id="scoreBoard">Score: 0</div>
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    <div class="game-over" id="gameOver" style="display: none;">Game Over!</div>
+
+    <script src="https://js.pusher.com/7.0/pusher.min.js"></script>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const gameOverDiv = document.getElementById('gameOver');
+        const gridSize = 20;
+        let snake = [{ x: 40, y: 40 }];
+        let snakeDirection = 'RIGHT';
+        let food = generateFood();
+        let score = 0;
+        let gameOver = false;
+
+        // Ensure Pusher is properly initialized
+        Pusher.logToConsole = true;
+
+        const pusher = new Pusher('71ac9991247ca90bc2b4', { cluster: 'ap2' });
+        const channel = pusher.subscribe('game-channel');
+
+        // Listen for game updates
+        channel.bind('game-update', function(data) {
+            updateGameState(data.state);
+        });
+
+        function updateGameState(state) {
+            snake = state.snake;
+            food = state.food;
+            score = state.score;
+            gameOver = state.gameOver;
+            drawGame();
+        }
+
+        function gameLoop() {
+            if (gameOver) return;
+            clearCanvas();
+            drawFood();
+            drawSnake();
+            moveSnake();
+            checkCollisions();
+            updateScore();
+            sendGameState();
+            setTimeout(gameLoop, 100);
+        }
+
+        function sendGameState() {
+            const gameState = {
+                snake: snake,
+                food: food,
+                score: score,
+                gameOver: gameOver
+            };
+
+            // Correct way to send data to Pusher
+            // This method sends an event via Pusher for all players
+            fetch('https://api.pusherapp.com/apps/your-app-id/events', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer your-auth-token` // if needed
+                },
+                body: JSON.stringify({
+                    data: gameState,
+                    event: 'game-update'
+                })
+            }).catch((error) => {
+                console.error('Error sending game state to Pusher:', error);
+            });
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawFood() {
+            ctx.fillStyle = 'red';
+            ctx.fillRect(food.x, food.y, gridSize, gridSize);
+        }
+
+        function drawSnake() {
+            ctx.fillStyle = 'lime';
+            for (const segment of snake) {
+                ctx.fillRect(segment.x, segment.y, gridSize, gridSize);
+            }
+        }
+
+        function moveSnake() {
+            const head = { ...snake[0] };
+
+            if (snakeDirection === 'UP') head.y -= gridSize;
+            if (snakeDirection === 'DOWN') head.y += gridSize;
+            if (snakeDirection === 'LEFT') head.x -= gridSize;
+            if (snakeDirection === 'RIGHT') head.x += gridSize;
+
+            snake.unshift(head);
+
+            if (head.x === food.x && head.y === food.y) {
+                score += 10;
+                food = generateFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        function checkCollisions() {
+            const head = snake[0];
+
+            // Check wall collision
+            if (head.x < 0 || head.x >= canvas.width || head.y < 0 || head.y >= canvas.height) {
+                endGame();
+            }
+
+            // Check self-collision
+            for (let i = 1; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) {
+                    endGame();
+                }
+            }
+        }
+
+        function endGame() {
+            gameOver = true;
+            gameOverDiv.style.display = 'block';
+        }
+
+        function updateScore() {
+            scoreBoard.textContent = `Score: ${score}`;
+        }
+
+        function generateFood() {
+            const x = Math.floor(Math.random() * (canvas.width / gridSize)) * gridSize;
+            const y = Math.floor(Math.random() * (canvas.height / gridSize)) * gridSize;
+            return { x, y };
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowUp' && snakeDirection !== 'DOWN') snakeDirection = 'UP';
+            if (event.key === 'ArrowDown' && snakeDirection !== 'UP') snakeDirection = 'DOWN';
+            if (event.key === 'ArrowLeft' && snakeDirection !== 'RIGHT') snakeDirection = 'LEFT';
+            if (event.key === 'ArrowRight' && snakeDirection !== 'LEFT') snakeDirection = 'RIGHT';
+        });
+
+        gameLoop();
+    </script>
+</body>
+</html>
